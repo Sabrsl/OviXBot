@@ -18,7 +18,7 @@ RULES = [
     ("DRF03", "Lien mort : domaine injoignable (DNS / connexion refusée)", True),
     ("DRF04", "URL brute dans une <ref> → {{Lien web}} / {{Article}} avec archive", True),
     ("DRF05", "{{Lien web}} / {{Article}} existants : ajouter brisé le, archive-url, archive-date", True),
-    ("DRF06", "Compléter les champs manquants d'un {{Lien web}} depuis l'archive (+ consulté le)", True),
+    ("DRF06", "Compléter les champs manquants d'un {{Lien web}} depuis l'archive", True),
     ("DRF07", "Titre contenant « | » : l'écrire &#124; (sinon la référence est ignorée)", False),
 ]
 
@@ -578,8 +578,6 @@ class Checker:
         site = T.param(m.site_name) or host
         if site:
             params.append(f"|site={site}")
-        # Date de consultation
-        params.append(f"|consulté le={T.fmt_dt(c.now)}")
         # Langue
         lang = T.guess_lang(title, m.lang)
         if lang:
@@ -599,7 +597,7 @@ class Checker:
             "kind": "dead_template_to_lien_web",
             "before": it.raw[:200] + "..." if len(it.raw) > 200 else it.raw,
             "after": new_template[:200] + "..." if len(new_template) > 200 else new_template,
-            "added_params": ["url", "titre", "archive-url", "archive-date", "site", "consulté le"],
+            "added_params": ["url", "titre", "archive-url", "archive-date", "site"],
             "timestamp": c.now.isoformat()
         })
         return new_template
@@ -649,8 +647,6 @@ class Checker:
                 if (add or fill) and not t.has_value("langue"):
                     tp = t.find("titre")
                     put("langue", T.guess_lang(title or (tp.value if tp else None), m.lang))
-            if not self._has_any(t, "consulté le", "consulté"):
-                put("consulté le", T.fmt_dt(now))
         put("brisé le", T.fmt_dt(now))
         put("archive-url", T.url_param(a["url"]))
         put("archive-date", a["date"])
@@ -702,14 +698,14 @@ class Checker:
             pages = None if not m.first_page else (m.first_page if not m.last_page else f"{m.first_page}-{m.last_page}")
             p += [("titre", title), ("périodique", T.param(m.journal)), ("volume", T.param(m.volume)), ("numéro", T.param(m.issue)),
                   ("date", T.fr_date(*m.date)), ("pages", T.param(pages)), ("issn", T.param(m.issn)),
-                  ("lire en ligne", T.url_param(it.url)), ("consulté le", cons)] + arch
+                  ("lire en ligne", T.url_param(it.url))] + arch
             p.append(("id", "{{doi|" + T.url_param(m.doi) + "}}" if m.doi else None))
             tpl, label = self._render("Article", p, c.o.emit_empty), "Article"
         else:
             p = [("langue", lang)]
             p += self._authors(m.authors, "auteur", True)
             p += [("titre", title), ("url", T.url_param(it.url)), ("date", T.fr_date(*m.date)),
-                  ("site", T.param(m.site_name) or host), ("consulté le", cons)] + arch
+                  ("site", T.param(m.site_name) or host)] + arch
             tpl, label = self._render("Lien web", p, c.o.emit_empty), "Lien web"
         c.hit("DRF04", label, it.url, tpl)
         c.r.total += 1
