@@ -164,7 +164,7 @@ class Engine:
         if not rows:
             raise WikiError("proposition introuvable")
         p = rows[0]
-        if p["status"] not in ("pending", "approved", "dry"):
+        if p["status"] not in ("pending", "approved"):
             raise WikiError(f"statut {p['status']} : publication impossible")
         if not (C.OAUTH_TOKEN or (C.BOT_USER and C.BOT_PASSWORD)):
             raise WikiError("aucun identifiant du compte configuré (DRF_BOT_USER / DRF_BOT_PASSWORD) : publication impossible")

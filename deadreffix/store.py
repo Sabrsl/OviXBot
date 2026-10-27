@@ -65,6 +65,9 @@ def put(key, value):
 def config():
     cfg = dict(C.DEFAULT_CONFIG)
     cfg.update(get("config", {}) or {})
+    # Sécurité : robot désactivé si identifiants de publication absents
+    if not (C.OAUTH_TOKEN or (C.BOT_USER and C.BOT_PASSWORD)):
+        cfg["enabled"] = False
     return cfg
 
 

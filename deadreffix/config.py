@@ -9,7 +9,12 @@ BOT_PASSWORD = os.environ.get("DRF_BOT_PASSWORD", "")
 OAUTH_TOKEN = os.environ.get("DRF_OAUTH_TOKEN", "")       # alternative : jeton OAuth 2 « owner-only »
 ACCOUNT = os.environ.get("DRF_ACCOUNT", "OviXBot")        # nom du compte (page Utilisateur / discussion)
 ADMIN_TOKEN = os.environ.get("DRF_ADMIN_TOKEN", "")       # protège l'interface web
-SECRET = os.environ.get("DRF_SECRET", ADMIN_TOKEN or "change-me")
+SECRET = os.environ.get("DRF_SECRET")
+if not SECRET:
+    if os.environ.get("DRF_INSECURE_COOKIES") == "1":
+        SECRET = ADMIN_TOKEN or "change-me"  # local only
+    else:
+        raise ValueError("DRF_SECRET obligatoire en production (toolforge envvars create DRF_SECRET=...)")
 DATA_DIR = os.environ.get("DRF_DATA_DIR") or os.path.join(os.environ.get("TOOL_DATA_DIR") or os.path.expanduser("~"), "ovixbot-data")
 USER_AGENT = os.environ.get(
     "DRF_USER_AGENT",
