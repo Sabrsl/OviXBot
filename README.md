@@ -1,6 +1,6 @@
 # OviXBot
 
-Bot de réparation de liens morts sur Wikipédia en français. Il détecte les références `<ref>` avec des liens brisés et ajoute automatiquement les archives disponibles.
+Bot de réparation de liens morts sur Wikipédia en français. Il détecte les références `<ref>` avec des liens brisés et ajoute automatiquement les archives disponibles et les paramètres de liens morts.
 
 ## Ce que fait le bot
 

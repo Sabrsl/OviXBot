@@ -1,0 +1,6 @@
+# toolforge jobs load deploy/jobs.yaml
+- name: ovixbot-worker
+  command: ~/www/python/src/deploy/run-worker.sh
+  image: python3.11
+  continuous: true
+  emails: onfailure
