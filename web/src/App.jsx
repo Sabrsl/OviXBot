@@ -1,11 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 async function api(path, opts = {}) {
-  const r = await fetch('/api' + path, {
-    method: opts.method || 'GET', credentials: 'same-origin',
-    headers: opts.body ? { 'Content-Type': 'application/json' } : (opts.method && opts.method !== 'GET' ? { 'Content-Type': 'application/json' } : {}),
-    body: opts.body ? JSON.stringify(opts.body) : (opts.method && opts.method !== 'GET' ? '{}' : undefined),
-  })
+  const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), opts.timeout || 25000)
+  let r
+  try {
+    r = await fetch('api' + path, {
+      method: opts.method || 'GET', credentials: 'same-origin', signal: ctl.signal,
+      headers: opts.body ? { 'Content-Type': 'application/json' } : (opts.method && opts.method !== 'GET' ? { 'Content-Type': 'application/json' } : {}),
+      body: opts.body ? JSON.stringify(opts.body) : (opts.method && opts.method !== 'GET' ? '{}' : undefined),
+    })
+  } catch (e) { throw new Error(e.name === 'AbortError' ? 'Le serveur ne répond pas (délai dépassé).' : 'Serveur injoignable : ' + e.message) } finally { clearTimeout(tm) }
   const j = await r.json().catch(() => ({}))
   if (r.status === 401 && path !== '/login') { const e = new Error('auth'); e.auth = true; throw e }
   if (!r.ok) throw new Error(j.error || 'Erreur ' + r.status)
@@ -46,6 +50,7 @@ function Dashboard({ st, reload, go }) {
     {halt && <div className="alert bad kill"><b>ROBOT ARRÊTÉ</b> — {halt.reason} <span className="mut">({fmt(halt.ts)})</span>
       <div className="small mut" style={{ margin: '6px 0' }}>Vérifiez la raison de l'arrêt (page de discussion, journal) avant de reprendre.</div>
       <button className="btn" disabled={busy} onClick={() => confirm('Reprendre l\'activité du robot ? Les demandes d\'arrêt antérieures seront ignorées.') && act(() => api('/resume', { method: 'POST', body: { confirm: true } }))}>Reprendre manuellement</button></div>}
+    {st.db_error && <div className="alert bad">Base de données indisponible ou verrouillée : {st.db_error}</div>}
     {hbAge >= 120 && <div className="alert warn">Le worker n'est pas lancé : aucun article n'est traité automatiquement (l'analyse manuelle fonctionne). En local, utilisez run-local ; sur Toolforge, la tâche ovixbot-worker.</div>}
     {!st.credentials && <div className="alert warn">Identifiants du compte absents (variables DRF_BOT_USER / DRF_BOT_PASSWORD ou DRF_OAUTH_TOKEN) : lecture seule, aucune modification possible.</div>}
     {st.bot_error && <div className="alert warn">Connexion à Wikipédia : {st.bot_error}</div>}
@@ -93,19 +98,19 @@ function TestBox({ st, reload }) {
       reload()
     } catch (e) { setMsg(e.message) }
   }
-  const col = { mort: 'var(--bad)', vivant: 'var(--ok)', 'indéterminé': 'var(--warn)' }
+  const col = { mort: 'var(--bad)', vivant: 'var(--ok)', 'indéterminé': 'var(--warn)', 'corrigé': 'var(--ok)', 'ignoré': 'var(--warn)' }
   return <div className="card"><h3>Analyser un article</h3>
     <div className="small mut" style={{ marginBottom: 8 }}>Compte bot : <b>{st.account || 'non configuré'}</b></div>
     <div className="row"><input className="grow" type="text" value={t} onChange={(e) => setT(e.target.value)} placeholder="Titre exact de l'article" onKeyDown={(e) => e.key === 'Enter' && t && !busy && run()} />
       <button className="btn pri" disabled={busy || !t} onClick={run}>{busy ? 'Analyse en cours…' : 'Analyser'}</button></div>
-    <p className="mut small">L'analyse suit vos réglages (règles, nombre de références) et n'écrit rien : la publication est un bouton à part. Comptez 1 s par lien (politesse envers les sites).</p>
+    <p className="mut small">L'analyse suit vos réglages (liens vérifiés, archives, « brisé le ») et n'écrit rien : la publication est un bouton à part. Comptez 1 s par lien (politesse envers les sites).</p>
     {r?.error && <p style={{ color: 'var(--bad)' }}>{r.error}</p>}
     {r?.skipped && <p className="mut">Article ignoré : {r.skipped}</p>}
     {r && !r.error && !r.skipped && <>
-      <p><b>{r.refs_total}</b> balise(s) ref · <b>{r.analyzed}</b> avec lien vérifiable · <b>{r.dead}</b> mort(s) · <b>{r.total}</b> correction(s){r.offline && <span style={{ color: 'var(--bad)' }}> · Wayback injoignable : rien analysé (vérifiez la connexion Internet)</span>}{r.timed_out && ' · temps dépassé, analyse partielle'}</p>
+      <p><b>{r.refs_total}</b> balise(s) ref · <b>{r.analyzed}</b> lien(s) vérifié(s) · <b>{r.dead}</b> mort(s) · <b>{r.total}</b> lien(s) modifié(s){r.offline && <span style={{ color: 'var(--bad)' }}> · pas de connexion Internet sortante : rien analysé</span>}{r.timed_out && ' · temps dépassé, analyse partielle'}</p>
       {r.report?.length > 0 && <table><thead><tr><th>Lien vérifié</th><th>État</th><th>Détail / archive</th></tr></thead><tbody>
         {r.report.map((x, i) => <tr key={i}><td className="small" style={{ wordBreak: 'break-all' }}>{x.url}</td><td style={{ color: col[x.state] }}>{x.state}</td><td className="small mut" style={{ wordBreak: 'break-all' }}>{x.reason || ''}{x.archive ? ' → ' + x.archive : ''}</td></tr>)}</tbody></table>}
-      {r.skipped_refs?.length > 0 && <details style={{ marginTop: 10 }}><summary className="small mut">{r.skipped_refs.length} référence(s) avec URL non traitée(s)</summary>{r.skipped_refs.map((x, i) => <div className="small mut" key={i} style={{ wordBreak: 'break-all' }}>{x.url} — {x.why}</div>)}</details>}
+      {r.skipped_refs?.length > 0 && <details style={{ marginTop: 10 }}><summary className="small mut">{r.skipped_refs.length} URL ignorée(s) (non vérifiable, hôte local, URL avec espace…)</summary>{r.skipped_refs.map((x, i) => <div className="small mut" key={i} style={{ wordBreak: 'break-all' }}>{x.url} — {x.why}</div>)}</details>}
       {r.diff ? <><h3 style={{ marginTop: 14 }}>Modification proposée</h3>
         <div className="card" style={{ marginBottom: 12, padding: 12, background: 'var(--bg-soft)' }}>
           <p className="small"><b>Résumé envoyé à Wikipédia :</b></p>
@@ -204,7 +209,7 @@ function Scheduler({ st, reload }) {
   const [c, setC] = useState(st.config); const [ok, setOk] = useState('')
   const set = (k, v) => setC((o) => ({ ...o, [k]: v }))
   const sch = (k, v) => setC((o) => ({ ...o, schedule: { ...o.schedule, [k]: v } }))
-  const KEYS = ['mode', 'autonomy_confirmed', 'schedule', 'min_edit_interval', 'max_edits_per_hour', 'max_edits_per_day', 'max_errors_before_pause', 'max_seconds', 'rules_disabled']
+  const KEYS = ['mode', 'autonomy_confirmed', 'schedule', 'min_edit_interval', 'max_edits_per_hour', 'max_edits_per_day', 'max_errors_before_pause', 'max_seconds', 'max_refs', 'add_archive', 'mark_broken']
   const save = async () => { try { await api('/config', { method: 'PUT', body: Object.fromEntries(KEYS.map((k) => [k, c[k]])) }); setOk('Enregistré.'); reload() } catch (e) { setOk(e.message) } }
   return <>
     <h2>Planificateur & modes</h2>
@@ -225,9 +230,11 @@ function Scheduler({ st, reload }) {
       <div><label>Max modifs / jour (≤ 500)</label><input type="number" min="1" max="500" value={c.max_edits_per_day} onChange={(e) => set('max_edits_per_day', +e.target.value)} /></div>
       <div><label>Pause après N erreurs consécutives</label><input type="number" min="1" value={c.max_errors_before_pause} onChange={(e) => set('max_errors_before_pause', +e.target.value)} /></div>
       <div><label>Durée max par article (s)</label><input type="number" min="30" value={c.max_seconds} onChange={(e) => set('max_seconds', +e.target.value)} /></div></div></div>
-    <div className="card"><h3>Règles de détection</h3>
-      {[['DRF01', 'Erreur HTTP (404, 410, 5xx…)'], ['DRF02', 'Soft 404 / redirection vers l\'accueil'], ['DRF03', 'Domaine injoignable'], ['DRF04', 'URL brute → {{Lien web}} / {{Article}}'], ['DRF05', 'Ajout des paramètres d\'archive aux modèles existants'], ['DRF06', 'Compléter les champs manquants'], ['DRF07', 'Titres contenant « | » (écrits &#124;)']].map(([id, l]) =>
-        <label key={id} style={{ margin: '4px 0', color: 'var(--tx)' }}><input type="checkbox" checked={!c.rules_disabled.includes(id)} onChange={(e) => set('rules_disabled', e.target.checked ? c.rules_disabled.filter((x) => x !== id) : [...c.rules_disabled, id])} /> <b>{id}</b> {l}</label>)}</div>
+    <div className="card"><h3>DeadLinkFix</h3>
+      <p className="mut small">Un lien n'est « mort » que s'il est confirmé (404/410 avec un second User-Agent, ou domaine inexistant). Erreurs temporaires, 403, 429, 5xx, timeouts : rien n'est modifié. « consulté le » n'est jamais touché.</p>
+      <label style={{ margin: '4px 0', color: 'var(--tx)' }}><input type="checkbox" checked={c.add_archive !== false} onChange={(e) => set('add_archive', e.target.checked)} /> Ajouter <b>archive-url</b> / <b>archive-date</b> (capture validée, même page) sur un lien mort sans archive</label>
+      <label style={{ margin: '4px 0', color: 'var(--tx)' }}><input type="checkbox" checked={c.mark_broken !== false} onChange={(e) => set('mark_broken', e.target.checked)} /> Ajouter <b>brisé le</b> quand une archive est présente — uniquement dans {'{{Lien web}}'}, jamais dans {'{{Article}}'} ni {'{{Ouvrage}}'}</label>
+      <div className="grid" style={{ marginTop: 8 }}><div><label>Liens vérifiés par article (≤ 500)</label><input type="number" min="1" max="500" value={c.max_refs} onChange={(e) => set('max_refs', +e.target.value)} /></div></div></div>
     <div className="row"><button className="btn pri" onClick={save}>Enregistrer</button>{ok && <span className="mut">{ok}</span>}</div>
   </>
 }
@@ -274,9 +281,9 @@ export default function App() {
   useEffect(() => { reload(); const t = setInterval(reload, 6000); return () => clearInterval(t) }, [reload])
   useEffect(() => { window.location.hash = tab }, [tab])
   if (authed === false) return <Login onOk={() => { setAuthed(true); reload() }} />
-  if (!st) return <p style={{ padding: 24 }} className="mut">{err || 'Chargement…'}</p>
+  if (!st) return <div style={{ padding: 24 }}><p className="mut">{err || 'Chargement…'}</p>{err && <button className="btn" onClick={reload}>Réessayer</button>}</div>
   return <div className="app">
-    <nav><h1>OviXBot<small>DeadRefFix · Toolforge</small></h1>
+    <nav><h1>OviXBot<small>DeadLinkFix · Toolforge</small></h1>
       {TABS.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}{k === 'props' && st.pending > 0 ? ` (${st.pending})` : ''}{k === 'security' && st.halt ? ' ⚠' : ''}</button>)}
       <div className="sp" /><button onClick={async () => { await api('/logout', { method: 'POST' }); setAuthed(false) }}>Déconnexion</button></nav>
     <main>

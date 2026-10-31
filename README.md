@@ -1,56 +1,58 @@
 # OviXBot
 
-Bot de réparation de liens morts sur Wikipédia en français. Il détecte les références `<ref>` avec des liens brisés et ajoute automatiquement les archives disponibles et les paramètres de liens morts.
+Robot de maintenance pour Wikipédia. Il repère les liens morts dans les références et les répare en ajoutant une version archivée valide.
 
-## Ce que fait le bot
+## Ce qu'il fait
 
-- Détecte les liens morts (HTTP 404, 410, 5xx, soft 404, domaines injoignables)
-- Convertit les URLs brutes en `{{Lien web}}` ou `{{Article}}`
-- Ajoute `brisé le`, `archive-url`, `archive-date` aux références existantes
-- Complète les champs manquants depuis l'archive (titre, site, éditeur) si activé
-- Ne touche PAS aux `{{Ouvrage}}`, réseaux sociaux, liens déjà archivés, ou hors `<ref>`
+- Repère les liens morts (erreurs 404, 410, 5xx, fausses pages d'erreur, sites injoignables)
+- Ajoute `brisé le`, `archive-url` et `archive-date` aux références existantes
+- Complète les champs manquants (titre, site, éditeur) à partir de l'archive, si l'option est activée
 
-## Modes de fonctionnement
+Il ne touche pas aux `{{Ouvrage}}`, aux réseaux sociaux, aux liens déjà archivés ni aux liens situés hors des `<ref>`.
 
-| Mode | Description |
-|------|-------------|
-| **Simulation** | Analyse et propose, n'écrit jamais |
-| **Supervisé** | Chaque modification attend votre validation |
-| **Autonome** | Publie seul (drapeau bot requis) |
+## Modes
+
+| Mode | Fonctionnement |
+|---|---|
+| Simulation | Analyse et propose, n'écrit jamais |
+| Supervisé | Chaque modification attend votre validation |
+| Autonome | Publie seul (nécessite le drapeau bot et une confirmation explicite) |
+
+Sans drapeau bot, le mode autonome est automatiquement ramené en supervisé.
 
 ## Arrêt d'urgence
 
-N'importe qui peut arrêter le robot en ajoutant une section « Arrêt d'urgence » sur sa page de discussion. Le vérifie toutes les 20 secondes et s'arrête immédiatement. La reprise n'est possible que manuellement.
+Tout utilisateur peut arrêter le robot en ouvrant une section « Arrêt d'urgence » sur sa page de discussion. Le robot la consulte toutes les 20 secondes et s'arrête aussitôt. La reprise se fait uniquement à la main, depuis le tableau de bord.
 
 ## Installation locale
 
-Python 3.9+ requis.
+Python 3.9 ou plus récent.
 
-```bash
-# Windows
-run-local.bat
+    # Windows
+    run-local.bat
 
-# Linux/macOS
-./run-local.sh
-```
+    # Linux / macOS
+    ./run-local.sh
 
 Le tableau de bord s'ouvre sur http://localhost:8000 (jeton : `local`).
 
 ## Configuration
 
-Les identifiants se configurent via variables d'environnement ou fichier `.env` :
+Les paramètres se règlent dans un fichier `.env` (modèle : `.env.example`) ou dans les variables d'environnement.
 
-```bash
-DRF_BOT_USER=Compte@Bot
-DRF_BOT_PASSWORD=mot_de_passe_robot
-DRF_ACCOUNT=NomDuCompte
-DRF_ADMIN_TOKEN=jeton_admin
-```
+| Variable | Rôle |
+|---|---|
+| `DRF_BOT_USER` | Identifiant du mot de passe de robot (ex. `OviXBot@OviX`) |
+| `DRF_BOT_PASSWORD` | Mot de passe de robot (Spécial:MotsDePasseDeRobot) |
+| `DRF_ACCOUNT` | Nom du compte (déduit de `DRF_BOT_USER` par défaut) |
+| `DRF_ADMIN_TOKEN` | Jeton d'accès au tableau de bord |
+| `DRF_SECRET` | Clé de session |
+| `DRF_DATA_DIR` | Dossier de la base de données locale |
 
 ## Sécurité
 
-- Intervalles minimaux entre modifications
+- Délai minimal entre deux modifications
 - Quotas par heure et par jour
-- Respect de `{{nobots}}` et `{{bots}}`
-- Vérification avant chaque publication (article non modifié entre-temps)
-- Arrêt automatique si compte bloqué ou erreurs répétées
+- Respect des modèles `{{nobots}}` et `{{bots}}`
+- Vérification avant chaque publication : l'article ne doit pas avoir changé depuis l'analyse
+- Arrêt automatique si le compte est bloqué ou si les erreurs se répètent

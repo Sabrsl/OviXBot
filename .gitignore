@@ -9,6 +9,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.pytest_cache/
 
 # Environnement virtuel
 .venv/
@@ -24,6 +25,7 @@ data/
 *.db
 *.sqlite
 *.sqlite3
+deadlinkfix.egg-info/
 
 # Logs
 logs/
@@ -45,7 +47,10 @@ logs/
 ehthumbs.db
 Thumbs.db
 
-# Web
+# Web (web/dist est VERSIONNÉ : Toolforge n'a pas besoin de Node)
 web/node_modules/
-web/dist/
 web/.vite/
+
+# C# (plugin AWB)
+DeadLinkFix/**/bin/
+DeadLinkFix/**/obj/
