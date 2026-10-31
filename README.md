@@ -48,6 +48,7 @@ Les paramètres se règlent dans un fichier `.env` (modèle : `.env.example`) ou
 | `DRF_ADMIN_TOKEN` | Jeton d'accès au tableau de bord |
 | `DRF_SECRET` | Clé de session |
 | `DRF_DATA_DIR` | Dossier de la base de données locale |
+| `DRF_DISABLE_BOT_REFRESH` | Désactive le rafraîchissement automatique des infos bot (affiche le cache sans mise à jour) |
 
 ## Sécurité
 

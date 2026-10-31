@@ -1,4 +1,5 @@
 """Client de l'API MediaWiki : connexion, lecture, catégories, modification, arrêt d'urgence."""
+import logging
 import re
 import time
 from datetime import datetime, timezone
@@ -7,6 +8,12 @@ import requests
 
 from . import config as C
 from . import store
+
+logger = logging.getLogger(__name__)
+
+# Timeouts natifs requests (adaptés pour éviter les blocages)
+CONNECT_TIMEOUT = 10
+READ_TIMEOUT = 20
 
 
 class WikiError(Exception):
@@ -26,18 +33,19 @@ class Wiki:
         self._last_edit = 0.0
 
     # --------------------------------------------------------- bas niveau
-    def call(self, params, post=False, retries=4):
+    def call(self, params, post=False, retries=2):
         p = dict(params, format="json", formatversion="2", maxlag="5")
         for attempt in range(retries):
             try:
-                r = (self.s.post if post else self.s.get)(C.API, **({"data": p} if post else {"params": p}), timeout=30)
+                r = (self.s.post if post else self.s.get)(C.API, **({"data": p} if post else {"params": p}),
+                                                            timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
             except requests.RequestException as e:
-                time.sleep(2 * (attempt + 1))
+                time.sleep(min(2 * (attempt + 1), 5))
                 if attempt == retries - 1:
                     raise WikiError(f"réseau : {e}")
                 continue
             if r.status_code in (429, 503):
-                time.sleep(int(r.headers.get("Retry-After", "10")) + 1)
+                time.sleep(min(int(r.headers.get("Retry-After", "10")) + 1, 15))
                 continue
             if r.status_code in (401, 403):
                 raise WikiError(f"accès refusé ({r.status_code}) : identifiants invalides ou droits insuffisants "
@@ -49,7 +57,7 @@ class Wiki:
             j = r.json()
             err = j.get("error")
             if err and err.get("code") == "maxlag":
-                time.sleep(min(int(r.headers.get("Retry-After", "5")) + 1, 30))
+                time.sleep(min(int(r.headers.get("Retry-After", "5")) + 1, 10))
                 continue
             if err:
                 raise WikiError(f"{err.get('code')}: {err.get('info')}")

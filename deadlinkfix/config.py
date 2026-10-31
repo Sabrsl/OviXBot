@@ -20,6 +20,7 @@ HAS_CREDENTIALS = bool(OAUTH_TOKEN or (BOT_USER and BOT_PASSWORD))
 ADMIN_TOKEN = os.environ.get("DRF_ADMIN_TOKEN", "")       # protège l'interface web
 SECRET = os.environ.get("DRF_SECRET", ADMIN_TOKEN or "change-me")
 DATA_DIR = os.environ.get("DRF_DATA_DIR") or os.path.join(os.environ.get("TOOL_DATA_DIR") or os.path.expanduser("~"), "ovixbot-data")
+DISABLE_BOT_REFRESH = os.environ.get("DRF_DISABLE_BOT_REFRESH") == "1"  # désactive le rafraîchissement automatique des infos bot (threads daemon)
 USER_AGENT = os.environ.get(
     "DRF_USER_AGENT",
     f"{ACCOUNT}-DeadLinkFix/1.0 (https://fr.wikipedia.org/wiki/Utilisateur:{ACCOUNT}; Toolforge tool ovixbot; Python requests)")
