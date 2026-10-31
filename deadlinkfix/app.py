@@ -128,10 +128,17 @@ def _refresh_bot():
 
 def bot_info():
     """Infos du compte Wikipédia, SANS JAMAIS bloquer la réponse : la connexion se fait en arrière-plan (c'était la cause du
-    « Chargement… » infini : /api/status attendait Wikipédia, avec nouvelles tentatives, avant de répondre)."""
+    « Chargement… » infini : /api/status attendait Wikipédia, avec nouvelles tentatives, avant de répondre).
+
+    Avec DRF_DISABLE_BOT_REFRESH=1 : désactive les actualisations automatiques, retourne le cache existant.
+    Sans DRF_DISABLE_BOT_REFRESH : rafraîchissement asynchrone en arrière-plan toutes les 120s."""
     if not (C.HAS_CREDENTIALS):
         return None, None
-    if not _bot["busy"] and time.time() - _bot["at"] > BOT_REFRESH_INTERVAL:
+    if (
+        not C.DISABLE_BOT_REFRESH
+        and not _bot["busy"]
+        and time.time() - _bot["at"] > BOT_REFRESH_INTERVAL
+    ):
         _bot["busy"] = True
         threading.Thread(target=_refresh_bot, daemon=True).start()
     return _bot["info"], _bot["error"]
