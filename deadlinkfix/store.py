@@ -10,17 +10,42 @@ from . import config as C
 
 _lock = threading.RLock()
 _conn = None
+_ino = None
 
 
 def now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _path():
+    return os.path.join(C.DATA_DIR, "ovixbot.db")
+
+
+def _stat_ino():
+    try:
+        return os.stat(_path()).st_ino
+    except OSError:
+        return None
+
+
+def _reset():
+    global _conn, _ino
+    try:
+        if _conn is not None:
+            _conn.close()
+    except Exception:
+        pass
+    _conn = None
+    _ino = None
+
+
 def db():
-    global _conn
+    global _conn, _ino
     with _lock:
+        if _conn is not None and _stat_ino() != _ino:  # fichier remplacé/renommé
+            _reset()
         if _conn is None:
-            _conn = sqlite3.connect(os.path.join(C.DATA_DIR, "ovixbot.db"), timeout=8, check_same_thread=False, isolation_level=None)
+            _conn = sqlite3.connect(_path(), timeout=8, check_same_thread=False, isolation_level=None)
             _conn.row_factory = sqlite3.Row
             _conn.execute("PRAGMA busy_timeout=8000")
             _conn.execute("PRAGMA journal_mode=DELETE")  # WAL non supporté sur NFS (Toolforge)
@@ -34,18 +59,29 @@ def db():
             CREATE TABLE IF NOT EXISTS log(id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, level TEXT, page TEXT, event TEXT, detail TEXT);
             CREATE TABLE IF NOT EXISTS analysis_log(id TEXT PRIMARY KEY, title TEXT, revid INTEGER, timestamp TEXT, data TEXT);
             """)
+            _ino = _stat_ino()
         return _conn
+
+
+def _retry(fn):
+    """Une seule nouvelle tentative après reconnexion si la base est devenue inutilisable."""
+    try:
+        return fn()
+    except sqlite3.OperationalError as e:
+        if "readonly" not in str(e) and "disk I/O" not in str(e):
+            raise
+        _reset()
+        return fn()
 
 
 def q(sql, args=()):
     with _lock:
-        return [dict(r) for r in db().execute(sql, args).fetchall()]
+        return _retry(lambda: [dict(r) for r in db().execute(sql, args).fetchall()])
 
 
 def x(sql, args=()):
     with _lock:
-        cur = db().execute(sql, args)
-        return cur.lastrowid
+        return _retry(lambda: db().execute(sql, args).lastrowid)
 
 
 def get(key, default=None):
