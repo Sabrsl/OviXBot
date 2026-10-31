@@ -47,5 +47,6 @@ DEFAULT_CONFIG = {
     "max_edits_per_hour": 20,
     "max_edits_per_day": 150,
     "max_errors_before_pause": 5,
+    "rules_disabled": [],             # règles DRF désactivées, ex. ["DRF05"]
     "schedule": {"enabled": False, "days": [0, 1, 2, 3, 4, 5, 6], "start_hour": 0, "end_hour": 24, "cycle_pause": 60},
 }
