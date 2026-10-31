@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deadlinkfix"
+version = "1.0.0"
+description = "DeadLinkFix - Bot de réparation des liens morts pour Wikipédia"
+requires-python = ">=3.8"
+dependencies = [
+    "flask",
+    "requests",
+    "beautifulsoup4",
+    "lxml",
+    "python-dotenv",
+]
+
+[tool.setuptools]
+packages = ["deadlinkfix"]
