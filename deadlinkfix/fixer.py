@@ -143,14 +143,7 @@ class Result:
     def summary(self):
         if not self.changed:
             return ""
-        parts = []
-        if self.repaired:
-            parts.append("1 lien corrigé" if self.repaired == 1 else f"{self.repaired} liens corrigés")
-        if self.archived:
-            parts.append("1 archive ajoutée" if self.archived == 1 else f"{self.archived} archives ajoutées")
-        if self.marked:
-            parts.append("1 lien brisé signalé" if self.marked == 1 else f"{self.marked} liens brisés signalés")
-        return "Liens externes des références : " + ", ".join(parts)
+        return "bot réparation de liens morts - test v2"
 
 
 class _Edit:
