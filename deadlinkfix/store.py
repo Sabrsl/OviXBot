@@ -98,9 +98,17 @@ def put(key, value):
     x("INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (key, json.dumps(value)))
 
 
+def _merge_schedule(base, new):
+    s = dict(base)
+    s.update({k: v for k, v in (new or {}).items() if v is not None})
+    return s
+
+
 def config():
     cfg = dict(C.DEFAULT_CONFIG)
-    cfg.update(get("config", {}) or {})
+    saved = get("config", {}) or {}
+    cfg.update(saved)
+    cfg["schedule"] = _merge_schedule(C.DEFAULT_CONFIG["schedule"], saved.get("schedule"))
     return cfg
 
 
@@ -108,7 +116,10 @@ def save_config(new):
     cfg = config()
     for k in C.DEFAULT_CONFIG:
         if k in new:
-            cfg[k] = new[k]
+            if k == "schedule":
+                cfg[k] = _merge_schedule(cfg["schedule"], new[k])
+            else:
+                cfg[k] = new[k]
     put("config", cfg)
     return cfg
 
