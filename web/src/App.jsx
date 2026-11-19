@@ -21,11 +21,89 @@ const ago = (s) => { if (!s) return 'jamais'; const d = (Date.now() - new Date(s
 const MODES = {
   dry: ['Simulation', 'Analyse et propose, n\'écrit jamais sur Wikipédia.'],
   supervised: ['Supervisé', 'Chaque modification attend votre validation dans « Propositions ».'],
-  auto: ['Autonome', 'Publie seul, dans les quotas. Exige le drapeau bot et une confirmation explicite.'],
+  auto: ['Autonome', 'Publie seul, dans les quotas. Confirmation explicite requise ; les comptes utilisateurs exigent en plus le drapeau bot.'],
 }
 
 function Diff({ text }) {
   return <pre className="diff">{(text || '').split('\n').map((l, i) => <span key={i} className={l.startsWith('+') && !l.startsWith('+++') ? 'a' : l.startsWith('-') && !l.startsWith('---') ? 'd' : 'h'}>{l || ' '}</span>)}</pre>
+}
+
+const urlsIn = (s) => String(s || '').match(/https?:\/\/[^\s|}\]<>"]+/g) || []
+const archiveOf = (h) => h.archive || h.archive_url || urlsIn(h.detail)[0] || ''
+const safeUrl = (u) => { try { const x = new URL(u); return /^https?:$/.test(x.protocol) ? x : null } catch { return null } }
+const hostOf = (u) => { const x = safeUrl(u); return x ? x.hostname.replace(/^www\./, '') : '' }
+const archiveLabel = (u) => {
+  const h = hostOf(u)
+  if (h.endsWith('archive.org')) return 'Wayback Machine'
+  if (/^archive\.(ph|is|md|vn|fo|li)$/.test(h)) return 'archive.ph'
+  return h || 'Archive'
+}
+const archiveDate = (u) => {
+  const m = String(u).match(/\/web\/(\d{4})(\d{2})(\d{2})/)
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : ''
+}
+const STATE_COL = { mort: 'var(--bad)', vivant: 'var(--ok)', 'indéterminé': 'var(--warn)', 'corrigé': 'var(--ok)', 'ignoré': 'var(--warn)' }
+const openNew = (u) => { const w = window.open(u, '_blank'); if (w) { try { w.opener = null } catch { } return true } return false }
+
+const RE_BROKEN = /\|\s*bris[ée]\s+le\s*=/gi
+const RE_ARCHIVE = /\|\s*archive[-_ ]?(?:url|date)\s*=/gi
+
+const countIn = (lines, re) =>
+  lines.reduce((n, l) => n + (l.match(re) || []).length, 0)
+
+// Vrai si le diff ajoute « brisé le= » SANS que le bot ajoute lui-même une archive.
+// Une archive déjà présente (ligne - et + identiques sur ce point) est ignorée.
+function onlyBrokenAdded(diff) {
+  const lines = String(diff || '').split('\n')
+  const added = lines.filter((l) => l.startsWith('+') && !l.startsWith('+++'))
+  const removed = lines.filter((l) => l.startsWith('-') && !l.startsWith('---'))
+  const brokenAdded = countIn(added, RE_BROKEN) - countIn(removed, RE_BROKEN)
+  const archiveAdded = countIn(added, RE_ARCHIVE) - countIn(removed, RE_ARCHIVE)
+  return brokenAdded > 0 && archiveAdded <= 0
+}
+
+function LinkActions({ items, title = 'Liens concernés' }) {
+  const [note, setNote] = useState('')
+  const rows = (items || []).map((h) => ({
+    url: h.url || h.old_url || '',
+    archive: archiveOf(h),
+    state: h.state,
+    reason: String(h.reason || (h.archive_url || h.archive ? '' : h.detail) || '').replace(/https?:\/\/\S+/g, '').replace(/[→\s]+$/, '').trim(),
+  })).filter((r) => safeUrl(r.url) || safeUrl(r.archive))
+  if (!rows.length) return null
+  const archives = [...new Set(rows.map((r) => r.archive).filter((u) => safeUrl(u)))]
+  const urls = [...new Set(rows.map((r) => r.url).filter((u) => safeUrl(u)))]
+  const openAll = () => {
+    let blocked = 0
+    urls.forEach((u) => { if (!openNew(u)) blocked++ })
+    archives.forEach((u) => { if (!openNew(u)) blocked++ })
+    setNote(blocked ? blocked + ' fenêtre(s) bloquée(s) par le navigateur : autorisez les pop-ups pour ce site, puis réessayez.' : '')
+  }
+  return <div className="card" style={{ marginTop: 12, padding: 12, background: 'var(--bg-soft)' }}>
+    <div className="row" style={{ marginBottom: 10 }}>
+      <b className="grow small">{title} · {rows.length}</b>
+      {(urls.length > 1 || archives.length > 1) && <button className="btn pri" onClick={openAll}>Tout ouvrir ({urls.length} pages + {archives.length} archives) ↗</button>}
+    </div>
+    {note && <p className="small" style={{ color: 'var(--warn)', margin: '0 0 8px' }}>{note}</p>}
+    {rows.map((r, i) => {
+      const host = hostOf(r.url) || 'Lien'
+      const date = archiveDate(r.archive)
+      return <div key={i} className="row" style={{ alignItems: 'center', gap: 10, padding: '8px 0', borderTop: i ? '1px solid var(--bd, rgba(128,128,128,.25))' : 'none' }}>
+        <span className="mut small" style={{ minWidth: 22, textAlign: 'right' }}>{i + 1}.</span>
+        <div className="grow" style={{ minWidth: 160 }}>
+          <div title={r.url} style={{ fontWeight: 600, wordBreak: 'break-word' }}>{host}
+            {r.state && <span className="small" style={{ marginLeft: 8, color: STATE_COL[r.state] }}>{r.state}</span>}</div>
+          <div className="small mut">
+            {r.archive ? <>Archive : {archiveLabel(r.archive)}{date && ' · capture du ' + date}</> : 'Aucune archive disponible'}
+            {r.reason && ' · ' + r.reason}</div>
+        </div>
+        <div className="row" style={{ gap: 6 }}>
+          {safeUrl(r.url) && <a className="btn" href={r.url} target="_blank" rel="noreferrer noopener" title={r.url}>Page d'origine ↗</a>}
+          {safeUrl(r.archive) && <a className="btn pri" href={r.archive} target="_blank" rel="noreferrer noopener" title={r.archive}>Voir l'archive ↗</a>}
+        </div>
+      </div>
+    })}
+  </div>
 }
 
 function Login({ onOk }) {
@@ -51,10 +129,10 @@ function Dashboard({ st, reload, go }) {
       <div className="small mut" style={{ margin: '6px 0' }}>Vérifiez la raison de l'arrêt (page de discussion, journal) avant de reprendre.</div>
       <button className="btn" disabled={busy} onClick={() => confirm('Reprendre l\'activité du robot ? Les demandes d\'arrêt antérieures seront ignorées.') && act(() => api('/resume', { method: 'POST', body: { confirm: true } }))}>Reprendre manuellement</button></div>}
     {st.db_error && <div className="alert bad">Base de données indisponible ou verrouillée : {st.db_error}</div>}
-    {hbAge >= 120 && <div className="alert warn">Le worker n'est pas lancé : aucun article n'est traité automatiquement (l'analyse manuelle fonctionne). En local, utilisez run-local ; sur Toolforge, la tâche ovixbot-worker.</div>}
+    {hbAge >= 120 && <div className="alert warn">Le worker n'est pas lancé : aucun article n'est traité automatiquement (l'analyse manuelle fonctionne). En local, utilisez run-local.</div>}
     {!st.credentials && <div className="alert warn">Identifiants du compte absents (variables DRF_BOT_USER / DRF_BOT_PASSWORD ou DRF_OAUTH_TOKEN) : lecture seule, aucune modification possible.</div>}
     {st.bot_error && <div className="alert warn">Connexion à Wikipédia : {st.bot_error}</div>}
-    {cfg.mode === 'auto' && st.effective_mode !== 'auto' && <div className="alert warn">Mode autonome demandé mais non actif : il faut le drapeau bot sur le compte et la case de confirmation cochée. Fonctionnement en mode supervisé.</div>}
+    {cfg.mode === 'auto' && st.effective_mode !== 'auto' && <div className="alert warn">Mode autonome demandé mais non actif : il faut la case de confirmation cochée (et le drapeau bot pour un compte utilisateur). Fonctionnement en mode supervisé.</div>}
     <div className="grid" style={{ marginBottom: 16 }}>
       <div className="stat"><b>{halt ? 'Arrêté' : cfg.enabled ? 'Actif' : 'Désactivé'}</b><span>État du robot</span></div>
       <div className="stat"><b>{MODES[st.effective_mode]?.[0] || '—'}</b><span>Mode effectif</span></div>
@@ -108,8 +186,7 @@ function TestBox({ st, reload }) {
     {r?.skipped && <p className="mut">Article ignoré : {r.skipped}</p>}
     {r && !r.error && !r.skipped && <>
       <p><b>{r.refs_total}</b> balise(s) ref · <b>{r.analyzed}</b> lien(s) vérifié(s) · <b>{r.dead}</b> mort(s) · <b>{r.total}</b> lien(s) modifié(s){r.offline && <span style={{ color: 'var(--bad)' }}> · pas de connexion Internet sortante : rien analysé</span>}{r.timed_out && ' · temps dépassé, analyse partielle'}</p>
-      {r.report?.length > 0 && <table><thead><tr><th>Lien vérifié</th><th>État</th><th>Détail / archive</th></tr></thead><tbody>
-        {r.report.map((x, i) => <tr key={i}><td className="small" style={{ wordBreak: 'break-all' }}>{x.url}</td><td style={{ color: col[x.state] }}>{x.state}</td><td className="small mut" style={{ wordBreak: 'break-all' }}>{x.reason || ''}{x.archive ? ' → ' + x.archive : ''}</td></tr>)}</tbody></table>}
+      {r.report?.length > 0 && <LinkActions items={r.report} title="Liens vérifiés" />}
       {r.skipped_refs?.length > 0 && <details style={{ marginTop: 10 }}><summary className="small mut">{r.skipped_refs.length} URL ignorée(s) (non vérifiable, hôte local, URL avec espace…)</summary>{r.skipped_refs.map((x, i) => <div className="small mut" key={i} style={{ wordBreak: 'break-all' }}>{x.url} — {x.why}</div>)}</details>}
       {r.diff ? <><h3 style={{ marginTop: 14 }}>Modification proposée</h3>
         <div className="card" style={{ marginBottom: 12, padding: 12, background: 'var(--bg-soft)' }}>
@@ -128,8 +205,31 @@ function TestBox({ st, reload }) {
 
 function Proposals({ reload }) {
   const [rows, setRows] = useState([]); const [sel, setSel] = useState(null); const [f, setF] = useState('pending'); const [msg, setMsg] = useState(''); const [customSummary, setCustomSummary] = useState('')
+  const [onlyBroken, setOnlyBroken] = useState(false)
+  const [diffs, setDiffs] = useState({})
+  const [scanning, setScanning] = useState(false)
   const load = useCallback(async () => setRows(await api('/proposals' + (f ? '?status=' + f : ''))), [f])
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (!onlyBroken) return
+    let cancelled = false
+    const todo = rows.filter((r) => r.diff === undefined && diffs[r.id] === undefined)
+    if (!todo.length) return
+    ;(async () => {
+      setScanning(true)
+      for (let i = 0; i < todo.length && !cancelled; i += 5) {
+        const batch = await Promise.all(todo.slice(i, i + 5).map((r) =>
+          api('/proposals/' + r.id).then((p) => [r.id, p.diff || ''], () => [r.id, ''])))
+        if (!cancelled) setDiffs((d) => ({ ...d, ...Object.fromEntries(batch) }))
+      }
+      if (!cancelled) setScanning(false)
+    })()
+    return () => { cancelled = true; setScanning(false) }
+  }, [onlyBroken, rows])
+
+  const visible = onlyBroken ? rows.filter((r) => onlyBrokenAdded(r.diff ?? diffs[r.id])) : rows
+
   const open = async (id) => { const s = await api('/proposals/' + id); setSel(s); setCustomSummary(s.summary) }
   const decide = async (kind) => {
     setMsg('')
@@ -140,27 +240,37 @@ function Proposals({ reload }) {
     } catch (e) { setMsg(e.message) }
     load(); reload()
   }
+  const editable = sel && (sel.status === 'pending' || sel.status === 'dry')
+  const summaryBox = { fontFamily: 'monospace', background: 'var(--bg)', padding: 8, borderRadius: 4, fontSize: 12, width: '100%', boxSizing: 'border-box' }
+
   return <>
     <h2>Propositions</h2>
-    <div className="row" style={{ marginBottom: 12 }}>{[['pending', 'En attente'], ['dry', 'Simulation'], ['saved', 'Publiées'], ['rejected', 'Rejetées'], ['stale', 'Obsolètes'], ['error', 'Erreurs'], ['', 'Toutes']].map(([k, l]) =>
+    <div className="row" style={{ marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>{[['pending', 'En attente'], ['dry', 'Simulation'], ['saved', 'Publiées'], ['rejected', 'Rejetées'], ['stale', 'Obsolètes'], ['error', 'Erreurs'], ['', 'Toutes']].map(([k, l]) =>
       <button key={k} className={'btn' + (f === k ? ' pri' : '')} onClick={() => { setF(k); setSel(null) }}>{l}</button>)}</div>
-    {sel && <div className="card"><div className="row"><h3 className="grow" style={{ margin: 0 }}>{sel.title} <span className={'badge b-' + sel.status}>{sel.status}</span></h3>
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px' }}>
+      <input type="checkbox" checked={onlyBroken} onChange={(e) => setOnlyBroken(e.target.checked)} />
+      <span>Seulement « brisé le= » ajouté (sans archive ajoutée par le bot)</span>
+      {onlyBroken && <span className="mut small">{scanning ? 'Analyse des diffs…' : visible.length + ' / ' + rows.length}</span>}
+    </label>
+    {sel && <div className="card"><div className="row" style={{ flexWrap: 'wrap', gap: 8 }}><h3 className="grow" style={{ margin: 0 }}>{sel.title} <span className={'badge b-' + sel.status}>{sel.status}</span></h3>
       <a className="btn" target="_blank" rel="noreferrer" href={'https://fr.wikipedia.org/wiki/' + encodeURIComponent(sel.title)}>Voir l'article</a>
       <button className="btn" onClick={() => setSel(null)}>Fermer</button></div>
-      <div className="card" style={{ marginBottom: 12, padding: 12, background: 'var(--bg-soft)' }}>
+      <div className="card" style={{ margin: '12px 0', padding: 12, background: 'var(--bg-soft)' }}>
         <p className="small"><b>Résumé envoyé à Wikipédia :</b></p>
-        {(sel.status === 'pending' || sel.status === 'dry') ? (
-          <input type="text" value={customSummary} onChange={(e) => setCustomSummary(e.target.value)} style={{ fontFamily: 'monospace', background: 'var(--bg)', padding: 8, borderRadius: 4, width: '100%', marginBottom: 8, fontSize: '12px' }} />
-        ) : (
-          <p className="small" style={{ fontFamily: 'monospace', background: 'var(--bg)', padding: 8, borderRadius: 4, wordBreak: 'break-word', fontSize: '12px' }}>{sel.summary}</p>
-        )}
+        {editable
+          ? <input type="text" value={customSummary} onChange={(e) => setCustomSummary(e.target.value)} style={{ ...summaryBox, marginBottom: 8 }} />
+          : <p className="small" style={{ ...summaryBox, wordBreak: 'break-word' }}>{sel.summary}</p>}
       </div>
       <Diff text={sel.diff} />
-      {(sel.status === 'pending' || sel.status === 'dry') && <div className="row" style={{ marginTop: 12 }}><button className="btn ok" onClick={() => decide('approve')}>{sel.status === 'dry' ? 'Publier sur Wikipédia' : 'Valider et publier'}</button><button className="btn bad" onClick={() => decide('reject')}>Rejeter</button></div>}
+      <LinkActions items={sel.hits} title="Liens corrigés" />
+      {editable && <div className="row" style={{ marginTop: 12, flexWrap: 'wrap', gap: 8 }}>
+        <button className="btn ok" onClick={() => decide('approve')}>{sel.status === 'dry' ? 'Publier sur Wikipédia' : 'Valider et publier'}</button>
+        <button className="btn bad" onClick={() => decide('reject')}>Rejeter</button>
+      </div>}
       {msg && <p style={{ color: 'var(--warn)' }}>{msg}</p>}</div>}
-    <div className="card"><table><thead><tr><th>Article</th><th>Statut</th><th>Réf.</th><th>Date</th><th>Note</th></tr></thead><tbody>
-      {rows.map((r) => <tr key={r.id} className="click" onClick={() => open(r.id)}><td>{r.title}</td><td><span className={'badge b-' + r.status}>{r.status}</span></td><td>{r.total}</td><td>{fmt(r.created)}</td><td className="mut small">{r.note || ''}</td></tr>)}
-      {rows.length === 0 && <tr><td colSpan="5" className="mut">Aucune proposition.</td></tr>}</tbody></table></div>
+    <div className="card" style={{ overflowX: 'auto' }}><table><thead><tr><th>Article</th><th>Statut</th><th>Réf.</th><th>Date</th><th>Note</th></tr></thead><tbody>
+      {visible.map((r) => <tr key={r.id} className="click" onClick={() => open(r.id)}><td>{r.title}</td><td><span className={'badge b-' + r.status}>{r.status}</span></td><td>{r.total}</td><td>{fmt(r.created)}</td><td className="mut small">{r.note || ''}</td></tr>)}
+      {visible.length === 0 && <tr><td colSpan="5" className="mut">{scanning ? 'Analyse en cours…' : 'Aucune proposition.'}</td></tr>}</tbody></table></div>
   </>
 }
 
@@ -210,32 +320,40 @@ function Scheduler({ st, reload }) {
   const set = (k, v) => setC((o) => ({ ...o, [k]: v }))
   const sch = (k, v) => setC((o) => ({ ...o, schedule: { ...o.schedule, [k]: v } }))
   const KEYS = ['mode', 'autonomy_confirmed', 'schedule', 'min_edit_interval', 'max_edits_per_hour', 'max_edits_per_day', 'max_errors_before_pause', 'max_seconds', 'max_refs', 'add_archive', 'mark_broken']
-  const save = async () => { try { await api('/config', { method: 'PUT', body: Object.fromEntries(KEYS.map((k) => [k, c[k]])) }); setOk('Enregistré.'); reload() } catch (e) { setOk(e.message) } }
+  const save = async (patch = null) => {
+    try {
+      const toSave = patch || Object.fromEntries(KEYS.map((k) => [k, c[k]]))
+      await api('/config', { method: 'PUT', body: toSave })
+      setOk('Enregistré.')
+      reload()
+    } catch (e) { setOk(e.message) }
+  }
+  useEffect(() => { if (JSON.stringify(c) !== JSON.stringify(st.config)) setC(st.config) }, [st.config])
   return <>
     <h2>Planificateur & modes</h2>
     <div className="card"><h3>Mode de fonctionnement</h3>
-      <div className="mode">{Object.entries(MODES).map(([k, [n, d]]) => <div key={k} className={c.mode === k ? 'on' : ''} onClick={() => set('mode', k)}><b>{n}</b><span>{d}</span></div>)}</div>
+      <div className="mode">{Object.entries(MODES).map(([k, [n, d]]) => <div key={k} className={c.mode === k ? 'on' : ''} onClick={() => { set('mode', k); save({ mode: k }) }}><b>{n}</b><span>{d}</span></div>)}</div>
       {c.mode === 'auto' && <div className="alert warn" style={{ marginTop: 12 }}>
-        <label style={{ margin: 0, color: 'inherit' }}><input type="checkbox" checked={c.autonomy_confirmed} onChange={(e) => set('autonomy_confirmed', e.target.checked)} /> Je confirme que le compte dispose du drapeau bot (tâche approuvée) et j'autorise les modifications sans validation.</label>
-        <div className="small">Statut du compte : {st.bot ? (st.bot.is_bot ? 'drapeau bot présent ✓' : 'PAS de drapeau bot — le mode autonome restera inactif') : 'non connecté'}</div></div>}</div>
+        <label style={{ margin: 0, color: 'inherit' }}><input type="checkbox" checked={c.autonomy_confirmed} onChange={(e) => { set('autonomy_confirmed', e.target.checked); save({ autonomy_confirmed: e.target.checked }) }} /> J'autorise les modifications sans validation.</label>
+        <div className="small">Statut du compte : {st.bot ? (st.bot.is_bot ? 'drapeau bot présent ✓' : (st.account_kind === 'bot' ? 'pas de drapeau bot — autorisé pour ce compte robot' : 'PAS de drapeau bot — le mode autonome restera inactif')) : 'non connecté'}</div></div>}</div>
     <div className="card"><h3>Planification (UTC)</h3>
-      <label><input type="checkbox" checked={c.schedule.enabled} onChange={(e) => sch('enabled', e.target.checked)} /> Limiter à une plage horaire</label>
-      {c.schedule.enabled && <><div className="days" style={{ margin: '10px 0' }}>{DAYS.map((d, i) => <button key={i} className={'btn' + (c.schedule.days.includes(i) ? ' on' : '')} onClick={() => sch('days', c.schedule.days.includes(i) ? c.schedule.days.filter((x) => x !== i) : [...c.schedule.days, i])}>{d}</button>)}</div>
-        <div className="grid"><div><label>Début (heure)</label><input type="number" min="0" max="23" value={c.schedule.start_hour} onChange={(e) => sch('start_hour', +e.target.value)} /></div>
-          <div><label>Fin (heure)</label><input type="number" min="1" max="24" value={c.schedule.end_hour} onChange={(e) => sch('end_hour', +e.target.value)} /></div>
-          <div><label>Pause entre cycles (s)</label><input type="number" min="30" value={c.schedule.cycle_pause} onChange={(e) => sch('cycle_pause', +e.target.value)} /></div></div></>}</div>
+      <label><input type="checkbox" checked={c.schedule.enabled} onChange={(e) => { sch('enabled', e.target.checked); save({ schedule: { ...c.schedule, enabled: e.target.checked } }) }} /> Limiter à une plage horaire</label>
+      {c.schedule.enabled && <><div className="days" style={{ margin: '10px 0' }}>{DAYS.map((d, i) => <button key={i} className={'btn' + (c.schedule.days.includes(i) ? ' on' : '')} onClick={() => { const newDays = c.schedule.days.includes(i) ? c.schedule.days.filter((x) => x !== i) : [...c.schedule.days, i]; sch('days', newDays); save({ schedule: { ...c.schedule, days: newDays } }) }}>{d}</button>)}</div>
+        <div className="grid"><div><label>Début (heure)</label><input type="number" min="0" max="23" value={c.schedule.start_hour} onChange={(e) => sch('start_hour', +e.target.value)} onBlur={() => save({ schedule: { ...c.schedule, start_hour: +e.target.value } })} /></div>
+          <div><label>Fin (heure)</label><input type="number" min="1" max="24" value={c.schedule.end_hour} onChange={(e) => sch('end_hour', +e.target.value)} onBlur={() => save({ schedule: { ...c.schedule, end_hour: +e.target.value } })} /></div>
+          <div><label>Pause entre cycles (s)</label><input type="number" min="30" value={c.schedule.cycle_pause} onChange={(e) => sch('cycle_pause', +e.target.value)} onBlur={() => save({ schedule: { ...c.schedule, cycle_pause: +e.target.value } })} /></div></div></>}</div>
     <div className="card"><h3>Quotas & garde-fous</h3><div className="grid">
-      <div><label>Intervalle min. entre modifs (s, ≥ 10)</label><input type="number" min="10" value={c.min_edit_interval} onChange={(e) => set('min_edit_interval', +e.target.value)} /></div>
-      <div><label>Max modifs / heure (≤ 60)</label><input type="number" min="1" max="60" value={c.max_edits_per_hour} onChange={(e) => set('max_edits_per_hour', +e.target.value)} /></div>
-      <div><label>Max modifs / jour (≤ 500)</label><input type="number" min="1" max="500" value={c.max_edits_per_day} onChange={(e) => set('max_edits_per_day', +e.target.value)} /></div>
-      <div><label>Pause après N erreurs consécutives</label><input type="number" min="1" value={c.max_errors_before_pause} onChange={(e) => set('max_errors_before_pause', +e.target.value)} /></div>
-      <div><label>Durée max par article (s)</label><input type="number" min="30" value={c.max_seconds} onChange={(e) => set('max_seconds', +e.target.value)} /></div></div></div>
+      <div><label>Intervalle min. entre modifs (s, ≥ 10)</label><input type="number" min="10" value={c.min_edit_interval} onChange={(e) => set('min_edit_interval', +e.target.value)} onBlur={() => save({ min_edit_interval: +e.target.value })} /></div>
+      <div><label>Max modifs / heure (≤ 60)</label><input type="number" min="1" max="60" value={c.max_edits_per_hour} onChange={(e) => set('max_edits_per_hour', +e.target.value)} onBlur={() => save({ max_edits_per_hour: +e.target.value })} /></div>
+      <div><label>Max modifs / jour (≤ 500)</label><input type="number" min="1" max="500" value={c.max_edits_per_day} onChange={(e) => set('max_edits_per_day', +e.target.value)} onBlur={() => save({ max_edits_per_day: +e.target.value })} /></div>
+      <div><label>Pause après N erreurs consécutives</label><input type="number" min="1" value={c.max_errors_before_pause} onChange={(e) => set('max_errors_before_pause', +e.target.value)} onBlur={() => save({ max_errors_before_pause: +e.target.value })} /></div>
+      <div><label>Durée max par article (s)</label><input type="number" min="30" value={c.max_seconds} onChange={(e) => set('max_seconds', +e.target.value)} onBlur={() => save({ max_seconds: +e.target.value })} /></div></div></div>
     <div className="card"><h3>DeadLinkFix</h3>
       <p className="mut small">Un lien n'est « mort » que s'il est confirmé (404/410 avec un second User-Agent, ou domaine inexistant). Erreurs temporaires, 403, 429, 5xx, timeouts : rien n'est modifié. « consulté le » n'est jamais touché.</p>
-      <label style={{ margin: '4px 0', color: 'var(--tx)' }}><input type="checkbox" checked={c.add_archive !== false} onChange={(e) => set('add_archive', e.target.checked)} /> Ajouter <b>archive-url</b> / <b>archive-date</b> (capture validée, même page) sur un lien mort sans archive</label>
-      <label style={{ margin: '4px 0', color: 'var(--tx)' }}><input type="checkbox" checked={c.mark_broken !== false} onChange={(e) => set('mark_broken', e.target.checked)} /> Ajouter <b>brisé le</b> quand une archive est présente — uniquement dans {'{{Lien web}}'}, jamais dans {'{{Article}}'} ni {'{{Ouvrage}}'}</label>
-      <div className="grid" style={{ marginTop: 8 }}><div><label>Liens vérifiés par article (≤ 500)</label><input type="number" min="1" max="500" value={c.max_refs} onChange={(e) => set('max_refs', +e.target.value)} /></div></div></div>
-    <div className="row"><button className="btn pri" onClick={save}>Enregistrer</button>{ok && <span className="mut">{ok}</span>}</div>
+      <label style={{ margin: '4px 0', color: 'var(--tx)' }}><input type="checkbox" checked={c.add_archive !== false} onChange={(e) => { set('add_archive', e.target.checked); save({ add_archive: e.target.checked }) }} /> Ajouter <b>archive-url</b> / <b>archive-date</b> (capture validée, même page) sur un lien mort sans archive</label>
+      <label style={{ margin: '4px 0', color: 'var(--tx)' }}><input type="checkbox" checked={c.mark_broken !== false} onChange={(e) => { set('mark_broken', e.target.checked); save({ mark_broken: e.target.checked }) }} /> Ajouter <b>brisé le</b> quand une archive est présente — uniquement dans {'{{Lien web}}'}, jamais dans {'{{Article}}'} ni {'{{Ouvrage}}'}</label>
+      <div className="grid" style={{ marginTop: 8 }}><div><label>Liens vérifiés par article (≤ 500)</label><input type="number" min="1" max="500" value={c.max_refs} onChange={(e) => set('max_refs', +e.target.value)} onBlur={() => save({ max_refs: +e.target.value })} /></div></div></div>
+    <div className="row"><button className="btn pri" onClick={() => save()}>Enregistrer</button>{ok && <span className="mut">{ok}</span>}</div>
   </>
 }
 
@@ -283,7 +401,7 @@ export default function App() {
   if (authed === false) return <Login onOk={() => { setAuthed(true); reload() }} />
   if (!st) return <div style={{ padding: 24 }}><p className="mut">{err || 'Chargement…'}</p>{err && <button className="btn" onClick={reload}>Réessayer</button>}</div>
   return <div className="app">
-    <nav><h1>OviXBot<small>DeadLinkFix · Toolforge</small></h1>
+    <nav><h1>OviXBot<small>DeadLinkFix</small></h1>
       {TABS.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}{k === 'props' && st.pending > 0 ? ` (${st.pending})` : ''}{k === 'security' && st.halt ? ' ⚠' : ''}</button>)}
       <div className="sp" /><button onClick={async () => { await api('/logout', { method: 'POST' }); setAuthed(false) }}>Déconnexion</button></nav>
     <main>

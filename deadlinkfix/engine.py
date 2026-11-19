@@ -33,6 +33,12 @@ class Engine:
         store.log("ARRET", f"{kind} — {reason}", level="error")
         return h
 
+    def apply_trigger(self, trig):
+        """Pose l'arrêt correspondant à un déclencheur de killswitch_check() (utilisé par guard et par l'API)."""
+        if trig["type"] == "talk":
+            return self.set_halt("killswitch", f"Arrêt d'urgence demandé par {trig.get('user') or 'inconnu'} ({trig['ts']})", trig)
+        return self.set_halt("blocked", trig.get("reason") or "compte bloqué", trig)
+
     def guard(self, force=False, need_enabled=True):
         """Lève Halt si le robot doit s'arrêter. Vérifie la page de discussion toutes les KS_POLL secondes."""
         h = store.get("halt")
@@ -48,10 +54,7 @@ class Engine:
                 raise Halt(f"arrêt d'urgence invérifiable : {e}")
             self._ks_at = time.time()
             if trig:
-                if trig["type"] == "talk":
-                    self.set_halt("killswitch", f"Arrêt d'urgence demandé par {trig['user']} ({trig['ts']})", trig)
-                else:
-                    self.set_halt("blocked", trig["reason"], trig)
+                self.apply_trigger(trig)
                 raise Halt("arrêt d'urgence")
 
     def userinfo(self):
@@ -70,11 +73,14 @@ class Engine:
         mode = cfg["mode"]
         if mode == "auto":
             try:
-                ok = cfg["autonomy_confirmed"] and (info or self.userinfo())["is_bot"]
+                is_bot = (info or self.userinfo())["is_bot"]
             except WikiError:
-                ok = False
+                is_bot = False
+            # Compte robot autorisé explicitement : publie même sans drapeau bot.
+            # Les comptes utilisateurs / AWB (sabrsl…) exigent toujours le drapeau bot.
+            ok = cfg["autonomy_confirmed"] and (is_bot or not C.IS_AWB_USER)
             if not ok:
-                return "supervised"  # jamais d'autonomie sans drapeau bot + confirmation explicite
+                return "supervised"  # jamais d'autonomie sans confirmation explicite (et drapeau bot pour les comptes utilisateurs)
         return mode
 
     def edit_budget(self, cfg):
@@ -164,7 +170,7 @@ class Engine:
             store.log("OBSOLETE", "article modifié entre-temps : proposition abandonnée", p["title"])
             return {"result": "stale"}
         try:
-            summary = custom_summary or p["summary"]
+            summary = custom_summary or C.EDIT_SUMMARY
             ed = self.wiki.edit(p["title"], p["new_text"], summary, cur["ts"], cur["revid"], bot=self.userinfo()["is_bot"])
         except Halt as e:
             self.set_halt("wiki", str(e))
@@ -179,36 +185,93 @@ class Engine:
         return {"result": "saved", "revid": ed.get("newrevid")}
 
     # ------------------------------------------------------------ sélection
+    def _next_chunk(self, c, chunk_size):
+        """Prochain lot d'articles d'une catégorie, en reprenant là où on s'était arrêté (état persistant)."""
+        depth = int(c.get("depth", 0))
+        key = f"cat_state:{c['name']}:{depth}"  # la profondeur fait partie de la clé : changer `depth` repart de zéro
+        fresh_state = lambda: {"stack": [[c["name"], depth]], "cont": None, "seen": []}
+        st = store.get(key) or fresh_state()
+        wrapped = False
+        while True:
+            if not st["stack"]:
+                if wrapped:
+                    store.put(key, fresh_state())
+                    return []
+                wrapped, st = True, fresh_state()
+            cat, d = st["stack"][-1]
+            try:
+                pages, subs, nxt = self.wiki.category_chunk(cat, st["cont"], chunk_size)
+            except WikiError as e:
+                if st["cont"] and "badcontinue" in str(e).lower():
+                    # jeton périmé (catégorie remaniée) : on repart du début au lieu de bloquer la catégorie
+                    store.log("ERREUR", f"jeton périmé pour {c['name']}, reprise au début", level="warn")
+                    st = fresh_state()
+                    store.put(key, st)
+                    continue
+                raise
+            if d > 0:
+                for s in subs:
+                    if s not in st["seen"] and len(st["seen"]) < 2000:
+                        st["seen"].append(s)
+                        st["stack"].insert(0, [s, d - 1])
+            st["cont"] = nxt
+            if nxt is None:
+                st["stack"].pop()
+            if pages:
+                store.put(key, st)
+                return pages
+
     def fill_queue(self, cfg):
         n = int(cfg["batch_size"])
-        recent = {r["title"] for r in store.q("SELECT title FROM processed WHERE checked > ?",
-                                              ((datetime.now(timezone.utc) - timedelta(days=int(cfg["recheck_days"]))).strftime("%Y-%m-%dT%H:%M:%SZ"),))}
-        cands = []
+        chunk_size = int(cfg.get("category_chunk", 100))
+        max_scan = int(cfg.get("max_scan_per_fill", 2000))
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=int(cfg["recheck_days"]))).strftime("%Y-%m-%dT%H:%M:%SZ")
+        seen = {r["title"] for r in store.q("SELECT title FROM processed WHERE checked > ?", (cutoff,))}
+        seen |= {r["title"] for r in store.q("SELECT title FROM queue")}
+        fresh = []
+
+        def take(t, src):
+            if t in seen:
+                return False
+            seen.add(t)
+            fresh.append((t, src))
+            return len(fresh) >= n
+
+        done = False
         for t in cfg["titles"]:
-            cands.append((t, "liste"))
+            if take(t, "liste"):
+                done = True
+                break
+
+        scanned = 0
         cats = list(cfg["categories"])
         random.shuffle(cats)
         for c in cats:
-            if len(cands) >= n * 4:
+            if done or scanned >= max_scan:
                 break
-            try:
-                members = self.wiki.category_members(c["name"], int(c.get("depth", 0)), limit=2000)
-            except WikiError as e:
-                store.log("ERREUR", f"catégorie {c['name']} : {e}", level="warn")
-                continue
-            random.shuffle(members)
-            cands += [(m, c["name"]) for m in members]
-        if cfg["random_pages"] and not cands:
-            cands += [(t, "hasard") for t in self.wiki.random_pages(n)]
-        added = 0
-        for t, src in cands:
-            if t in recent or store.q("SELECT 1 FROM queue WHERE title=?", (t,)):
-                continue
+            while not done and scanned < max_scan:
+                try:
+                    members = self._next_chunk(c, chunk_size)
+                except WikiError as e:
+                    store.log("ERREUR", f"catégorie {c['name']} : {e}", level="warn")
+                    break
+                if not members:
+                    break
+                random.shuffle(members)
+                scanned += len(members)
+                for m in members:
+                    if take(m, c["name"]):
+                        done = True
+                        break
+
+        if cfg["random_pages"] and not fresh:
+            for t in self.wiki.random_pages(n):
+                if take(t, "hasard"):
+                    break
+
+        for t, src in fresh:
             store.x("INSERT OR IGNORE INTO queue(title,source,manual,added) VALUES(?,?,0,?)", (t, src, store.now()))
-            added += 1
-            if added >= n:
-                break
-        return added
+        return len(fresh)
 
     def next_titles(self, cfg):
         n = int(cfg["batch_size"])
@@ -263,6 +326,7 @@ def run_worker():
                     store.log("ERREUR", f"{type(e).__name__}: {e}", r["title"], "error")
                     if errors >= int(cfg["max_errors_before_pause"]):
                         eng.set_halt("errors", f"{errors} erreurs consécutives : pause automatique")
+                        errors = 0  # après « Reprendre », on repart d'un compteur propre
                         raise Halt("erreurs")
                 if eng.effective_mode(cfg) == "auto" and eng.edit_budget(cfg) <= 0:
                     break

@@ -45,6 +45,7 @@ Les paramètres se règlent dans un fichier `.env` (modèle : `.env.example`) ou
 | `DRF_BOT_USER` | Identifiant du mot de passe de robot (ex. `OviXBot@OviX`) |
 | `DRF_BOT_PASSWORD` | Mot de passe de robot (Spécial:MotsDePasseDeRobot) |
 | `DRF_ACCOUNT` | Nom du compte (déduit de `DRF_BOT_USER` par défaut) |
+| `DRF_AWB_USERS` | Comptes AutoWikiBrowser (balise AWB, sans bot/minor) : `user@domaine` ou `user`, séparés par des virgules. Défaut : `sabrsl@sysoperator`. Tout autre compte (ex. `OviXBot`) est traité comme compte robot |
 | `DRF_ADMIN_TOKEN` | Jeton d'accès au tableau de bord |
 | `DRF_SECRET` | Clé de session |
 | `DRF_DATA_DIR` | Dossier de la base de données locale |

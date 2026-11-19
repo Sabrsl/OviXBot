@@ -141,9 +141,17 @@ class Result:
         return self.text != self.original
 
     def summary(self):
+        """Résumé d'édition, identique à DeadLinkFixEngine.BuildSummary (plugin AWB)."""
         if not self.changed:
             return ""
-        return "bot réparation de liens morts - test v2"
+        parts = []
+        if self.repaired:
+            parts.append("1 lien corrigé" if self.repaired == 1 else f"{self.repaired} liens corrigés")
+        if self.archived:
+            parts.append("1 archive ajoutée" if self.archived == 1 else f"{self.archived} archives ajoutées")
+        if self.marked:
+            parts.append("1 lien brisé signalé" if self.marked == 1 else f"{self.marked} liens brisés signalés")
+        return "Liens externes des références : " + ", ".join(parts)
 
 
 class _Edit:
@@ -367,7 +375,7 @@ class Fixer:
             add(s.offset + s.up.vend, s.offset + s.up.vend, "".join(pre + "|" + a for a in appends))
 
 
-def default_providers(user_agent, use_archive_ph=True):
+def default_providers(user_agent, use_archive_ph=False):
     p = [ARC.WaybackProvider(user_agent=user_agent)]
     if use_archive_ph:
         p.append(ARC.MementoProvider(user_agent=user_agent))

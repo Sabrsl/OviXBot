@@ -49,6 +49,7 @@ Thumbs.db
 
 # Web (web/dist est VERSIONNÉ : Toolforge n'a pas besoin de Node)
 web/node_modules/
+!web/dist/
 web/.vite/
 
 # C# (plugin AWB)

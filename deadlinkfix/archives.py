@@ -9,7 +9,7 @@ import requests
 from .urltools import same_resource
 
 SNAPSHOT = re.compile(r"^https?://[^/]+/(?:web/)?(?P<ts>\d{14})(?:[a-z]{2}_)?/(?P<orig>https?:/{1,2}.+)$", re.I)
-ARCHIVE_SUFFIXES = ("archive.org", "archive.ph", "archive.today", "archive.is")
+ARCHIVE_SUFFIXES = ("archive.org", "archive.ph", "archive.is")
 
 
 class Snapshot:

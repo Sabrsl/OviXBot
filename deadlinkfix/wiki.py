@@ -132,6 +132,23 @@ class Wiki:
                 out += self.category_members(sc, depth - 1, limit - len(out), seen)
         return out[:limit]
 
+    def category_chunk(self, cat, cont=None, limit=100):
+        """Un seul appel API. Retourne (articles ns0, sous-catégories, jeton de suite ou None)."""
+        if not cat.lower().startswith(("catégorie:", "category:")):
+            cat = "Catégorie:" + cat
+        p = {"action": "query", "list": "categorymembers", "cmtitle": cat,
+             "cmtype": "page|subcat", "cmlimit": str(min(int(limit), 500))}
+        if cont:
+            p["cmcontinue"] = cont
+        j = self.call(p)
+        pages, subs = [], []
+        for m in j["query"]["categorymembers"]:
+            if m["ns"] == 0:
+                pages.append(m["title"])
+            elif m["ns"] == 14:
+                subs.append(m["title"])
+        return pages, subs, j.get("continue", {}).get("cmcontinue")
+
     def category_search(self, prefix):
         j = self.call({"action": "query", "list": "prefixsearch", "pssearch": prefix, "psnamespace": "14", "pslimit": "10"})
         return [{"title": r["title"]} for r in j["query"]["prefixsearch"]]
@@ -175,7 +192,9 @@ class Wiki:
             time.sleep(wait)
         p = {"action": "edit", "title": title, "text": text, "summary": summary, "basetimestamp": basetimestamp, "baserevid": str(baserevid),
              "nocreate": "1", "token": self.token(), "assert": "user"}
-        if bot:
+        if C.IS_AWB_USER:
+            p["tags"] = "AWB"
+        elif bot:
             p["bot"] = "1"
             p["minor"] = "1"
         try:

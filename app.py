@@ -1,4 +1,4 @@
-"""Point d'entrée WSGI Toolforge (`webservice python3.11`) : expose `app`."""
+"""Point d'entrée WSGI : expose `app`."""
 from deadlinkfix.app import app  # noqa: F401
 
 if __name__ == "__main__":

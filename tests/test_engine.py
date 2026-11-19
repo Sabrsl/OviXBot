@@ -37,12 +37,23 @@ def test_dry_never_writes():
 
 def test_auto_writes():
     e = mk("auto"); e.process("Paris")
-    assert FW.edits and "archive" in FW.edits[0][1]
+    assert FW.edits and FW.edits[0][1] == "bot : réparation de liens morts"  # compte robot : résumé imposé
 
 def test_supervised_then_approve():
     e = mk("supervised"); e.process("Paris2")
     pid = store.q("SELECT id FROM proposals ORDER BY id DESC")[0]["id"]
     assert not FW.edits; e.save(pid); assert FW.edits
+    assert FW.edits[0][1] == "bot : réparation de liens morts"
+
+def test_edit_summary_user_account():
+    import deadlinkfix.config as C
+    C.IS_AWB_USER, C.EDIT_SUMMARY = True, "réparation de liens morts"
+    try:
+        e = mk("supervised"); e.process("ParisU")
+        pid = store.q("SELECT id FROM proposals ORDER BY id DESC")[0]["id"]
+        e.save(pid); assert FW.edits[0][1] == "réparation de liens morts"
+    finally:
+        C.IS_AWB_USER, C.EDIT_SUMMARY = False, "bot : réparation de liens morts"
 
 def test_killswitch_blocks():
     e = mk("auto")

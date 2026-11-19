@@ -1,4 +1,4 @@
-"""Point d'entrée du worker : `python -m deadlinkfix.worker` (tâche continue Toolforge)."""
+"""Point d'entrée du worker : `python -m deadlinkfix.worker`."""
 from .engine import run_worker
 
 if __name__ == "__main__":

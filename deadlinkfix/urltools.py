@@ -28,7 +28,7 @@ SHARED_HOSTING = {
 }
 
 ARCHIVE_HOSTS = (
-    'archive.org', 'archive.ph', 'archive.is', 'archive.today', 'archive.li', 'archive.fo', 'archive.md',
+    'archive.org', 'archive.ph', 'archive.is', 'archive.li', 'archive.fo', 'archive.md',
     'archive.vn', 'webcitation.org', 'archive-it.org', 'arquivo.pt', 'perma.cc', 'webarchive.org.uk',
 )
 
